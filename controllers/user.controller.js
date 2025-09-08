@@ -37,20 +37,26 @@ exports.registerUser = async (req, res) => {
     let schoolId = null;
     let isSchoolStudent = false; // default false
 
+    // ✅ Case: User selected "Others" & provided a new school
     if (schoolName && schoolName === "Others" && newSchoolName) {
-      // ✅ If "Others" chosen → check/create new school
       let school = await School.findOne({ name: newSchoolName.trim() });
 
       if (!school) {
-        school = await School.create({ name: newSchoolName.trim() });
+        // ✅ Create a new school with isNewAdded = true
+        school = await School.create({
+          name: newSchoolName.trim(),
+          isNewAdded: true,
+        });
       }
 
       finalSchoolName = school.name;
       schoolId = school._id;
-      isSchoolStudent = true; // ✅ user provided school info
-    } else if (schoolName && schoolName !== "Others") {
-      // ✅ Existing school
+      isSchoolStudent = true;
+    }
+    // ✅ Case: User selected an existing school
+    else if (schoolName && schoolName !== "Others") {
       const school = await School.findOne({ name: schoolName.trim() });
+
       if (!school) {
         return res.status(400).json({
           success: false,
@@ -60,11 +66,11 @@ exports.registerUser = async (req, res) => {
 
       finalSchoolName = school.name;
       schoolId = school._id;
-      isSchoolStudent = true; // ✅ user provided school info
+      isSchoolStudent = true;
     }
     // else → no schoolName → keep isSchoolStudent = false
 
-    // ✅ Save user with is_schoolStudent field
+    // ✅ Save user
     const user = await User.create({
       name,
       mobileNumber,
@@ -81,6 +87,7 @@ exports.registerUser = async (req, res) => {
       is_schoolStudent: isSchoolStudent,
     });
 
+    // ✅ Response
     res.status(201).json({
       success: true,
       user: {
@@ -109,7 +116,6 @@ exports.registerUser = async (req, res) => {
     });
   }
 };
-
 
 
 //user signin

@@ -8,6 +8,9 @@ const schoolSchema = new mongoose.Schema(
       unique: true, // unique index
       trim: true,
     },
+    isNewAdded:{type:Boolean,
+      default:false,
+    }
   },
   { timestamps: true }
 );

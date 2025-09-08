@@ -18,6 +18,7 @@ app.use(morgan("dev"));
 const superAdminRoutes=require('./routes/superAdmin.route')
 const userRoutes=require('./routes/user.route')
 const schoolRoutes=require('./routes/school.route')
+const locationRoutes=require('./routes/location.route')
 const { sendSuccess } = require("./utils/response");
 const { constants } = require("./constant");
 
@@ -35,7 +36,7 @@ app.get('/',(req, res)=>{
 app.use("/api/v1/superAdmin",superAdminRoutes)
 app.use("/api/v1/user",userRoutes)
 app.use("/api/v1/school",schoolRoutes)
-
+app.use("/api/v1/locations",locationRoutes)
 
 //Connect to MongoDb and Server
 if (process.env.NODE_ENV !== "test") {
