@@ -1,12 +1,19 @@
 {
   "name": "knowalledge_backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "School Knowledge Management System Backend",
+  "main": "app.js",
   "scripts": {
+    "start": "node app.js",
+    "dev": "nodemon app.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
+  "keywords": [
+    "school",
+    "education",
+    "pwa",
+    "backend"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
@@ -16,6 +23,7 @@
     "dotenv": "^17.2.2",
     "express": "^5.1.0",
     "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.18.0",
     "morgan": "^1.10.1",
     "multer": "^2.0.2",
