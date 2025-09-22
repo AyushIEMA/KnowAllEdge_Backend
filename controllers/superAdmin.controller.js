@@ -1,14 +1,31 @@
 const SuperAdminModel = require("../models/superAdmin.model");
 const User=require('../models/user.model')
 const Topic=require('../models/topic.model')
+const News=require('../models/news.model')
+const Trivia=require('../models/trivia.model')
 const {constants}=require("../constant")
 const {generateAuthToken}=require("../utils/generateAuthToken")
 const bcryptjs = require("bcryptjs");
+const ExcelJS = require("exceljs");
+const fs = require("fs");
+const path = require("path");
+const AWS = require("aws-sdk");
+const { uploadFile } = require('../utils/s3');
 const {
   sendSuccess,
   sendError,
   sendServerError,
 } = require("../utils/response");
+
+
+// ✅ Configure AWS S3
+const s3 = new AWS.S3({
+  accessKeyId: process.env.AWS_ACCESS_KEY_ID,     // from .env
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  region: process.env.AWS_REGION,
+});
+
+
 
 //signup
 exports.superAdminPostSignup = async (req, res) => {
@@ -227,6 +244,88 @@ exports.updateUserById = async (req, res) => {
   }
 };
 
+//get all user List in CSV to be chnaged when s3 created
+exports.exportUsersToExcel = async (req, res) => {
+  try {
+    // Fetch all users
+    const users = await User.find().populate("schoolId", "name");
+
+    // Create a new workbook & worksheet
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Users");
+
+    // Define columns
+    worksheet.columns = [
+      { header: "Name", key: "name", width: 20 },
+      { header: "Mobile Number", key: "mobileNumber", width: 20 },
+      { header: "Email", key: "email", width: 25 },
+      { header: "Date of Birth", key: "dateOfBirth", width: 15 },
+      { header: "Gender", key: "gender", width: 10 },
+      { header: "Password", key: "password", width: 30 },
+      { header: "Country", key: "country", width: 15 },
+      { header: "State", key: "state", width: 15 },
+      { header: "City", key: "city", width: 15 },
+      { header: "School ID", key: "schoolId", width: 25 },
+      { header: "School Name", key: "schoolName", width: 25 },
+      { header: "Topics", key: "topics", width: 30 },
+      { header: "Is School Student", key: "is_schoolStudent", width: 15 },
+    ];
+
+    // Add rows
+    users.forEach((user) => {
+      worksheet.addRow({
+        name: user.name,
+        mobileNumber: user.mobileNumber || "",
+        email: user.email,
+        dateOfBirth: user.dateOfBirth
+          ? user.dateOfBirth.toISOString().split("T")[0]
+          : "",
+        gender: user.gender,
+        password: user.password,
+        country: user.country,
+        state: user.state,
+        city: user.city,
+        schoolId: user.schoolId?._id ? user.schoolId._id.toString() : "",
+        schoolName: user.schoolName || user.schoolId?.name || "",
+        topics: user.topics && user.topics.length ? user.topics.join(", ") : "",
+        is_schoolStudent: user.is_schoolStudent ? "Yes" : "No",
+      });
+    });
+
+    // Bold headers
+    worksheet.getRow(1).eachCell((cell) => {
+      cell.font = { bold: true };
+    });
+
+    // Make sure `exports` folder exists
+    const exportDir = path.join(__dirname, "../exports");
+    if (!fs.existsSync(exportDir)) {
+      fs.mkdirSync(exportDir);
+    }
+
+    // File path with timestamp
+    const filePath = path.join(exportDir, `users_${Date.now()}.xlsx`);
+
+    // Save Excel file to server
+    await workbook.xlsx.writeFile(filePath);
+
+    // Send response with file info
+    res.status(200).json({
+      success: true,
+      message: "Users exported successfully",
+      filePath, // Local server path
+    });
+  } catch (error) {
+    console.error("Error exporting users to Excel:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to export users",
+      error: error.message,
+    });
+  }
+};
+
+
 //delete User
 exports.deleteUserById = async (req, res) => {
   try {
@@ -340,3 +439,345 @@ exports.deleteTopic = async (req, res) => {
     res.status(500).json({ success: false, message: "Server error", error: error.message });
   }
 };
+
+
+
+//Add news 
+exports.createNews = async (req, res) => {
+  try {
+    const {
+      heading,
+      subHeading,
+      smallContent,
+      largeContent,
+      contentType,
+      contentFor,
+      date,
+    } = req.body;
+
+    // ✅ Normalize topics
+    let topics = req.body.topics || [];
+    if (typeof topics === "string") {
+      try {
+        // If it's a JSON string like '["AI","Tech"]'
+        const parsed = JSON.parse(topics);
+        topics = Array.isArray(parsed) ? parsed : [topics];
+      } catch {
+        // If it's a single string like "Education"
+        topics = [topics];
+      }
+    }
+
+    if (!Array.isArray(topics)) {
+      topics = [topics];
+    }
+
+    // ✅ Word limit check
+    const wordCount = smallContent ? smallContent.trim().split(/\s+/).length : 0;
+    if (wordCount > 80) {
+      return res.status(400).json({
+        success: false,
+        message: "Sorry in First Content Box you can add only 80 words!!",
+      });
+    }
+
+    // ✅ Upload multiple images to S3
+    let imageUrls = [];
+    if (req.files && req.files.length > 0) {
+      imageUrls = await Promise.all(
+        req.files.map((file) =>
+          uploadFile(file.buffer, file.originalname, file.mimetype, "news")
+        )
+      );
+    }
+
+    // ✅ Create News
+    const news = await News.create({
+      heading,
+      subHeading,
+      smallContent,
+      largeContent,
+      images: imageUrls,
+      contentType,
+      topics,
+      contentFor,
+      date,
+    });
+
+    res.status(201).json({ success: true, data: news });
+  } catch (error) {
+    console.error("createNews error:", error);
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+// Get All News
+exports.getAllNews = async (req, res) => {
+  try {
+    const news = await News.find().sort({ createdAt: -1 });
+    res.status(200).json({ success: true, data: news });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Get Single News by ID
+exports.getNewsById = async (req, res) => {
+  try {
+    const news = await News.findById(req.params.id);
+    if (!news) {
+      return res.status(404).json({ success: false, message: "News not found" });
+    }
+    res.status(200).json({ success: true, data: news });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
+// Update News
+exports.updateNews = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      heading,
+      subHeading,
+      smallContent,
+      largeContent,
+      contentType,
+      contentFor,
+      date,
+      topics: rawTopics,
+      removeImages = [], // array of image URLs to remove
+    } = req.body;
+
+    const news = await News.findById(id);
+    if (!news) return res.status(404).json({ success: false, message: "News not found" });
+
+    // ✅ Word limit check
+    if (smallContent) {
+      const wordCount = smallContent.trim().split(/\s+/).length;
+      if (wordCount > 80)
+        return res.status(400).json({ success: false, message: "Small content max 80 words" });
+    }
+
+    // ✅ Normalize topics
+    let topics = rawTopics || news.topics;
+    if (typeof topics === "string") {
+      try {
+        const parsed = JSON.parse(topics);
+        topics = Array.isArray(parsed) ? parsed : [topics];
+      } catch {
+        topics = [topics];
+      }
+    }
+    if (!Array.isArray(topics)) topics = [topics];
+
+    // ✅ Upload new images
+    let newImages = [];
+    if (req.files && req.files.length > 0) {
+      newImages = await Promise.all(
+        req.files.map((file) => uploadFile(file.buffer, file.originalname, file.mimetype, "news"))
+      );
+    }
+
+    // ✅ Remove selected images
+    let updatedImages = news.images.filter((img) => !removeImages.includes(img));
+
+    // ✅ Merge new images
+    updatedImages = [...updatedImages, ...newImages];
+
+    // ✅ Update fields
+    news.heading = heading || news.heading;
+    news.subHeading = subHeading || news.subHeading;
+    news.smallContent = smallContent || news.smallContent;
+    news.largeContent = largeContent || news.largeContent;
+    news.contentType = contentType || news.contentType;
+    news.contentFor = contentFor || news.contentFor;
+    news.date = date || news.date;
+    news.topics = topics;
+    news.images = updatedImages;
+
+    await news.save();
+
+    res.status(200).json({ success: true, message: "News updated successfully", data: news });
+  } catch (error) {
+    console.error("updateNews error:", error);
+    res.status(500).json({ success: false, message: "Server error", error: error.message });
+  }
+};
+
+// Delete News
+exports.deleteNews = async (req, res) => {
+  try {
+    const news = await News.findByIdAndDelete(req.params.id);
+    if (!news) {
+      return res.status(404).json({ success: false, message: "News not found" });
+    }
+    res.status(200).json({ success: true, message: "News deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Trivia Section ------------------------
+
+// ✅ Create Trivia
+exports.createTrivia = async (req, res) => {
+  try {
+    const { triviaName, subCards } = req.body;
+
+    if (!subCards || subCards.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "At least one subcard is required."
+      });
+    }
+
+    const trivia = await Trivia.create({ triviaName, subCards });
+
+    res.status(201).json({ success: true, data: trivia });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+// ✅ Get All Trivias
+exports.getAllTrivias = async (req, res) => {
+  try {
+    const trivias = await Trivia.find().sort({ createdAt: -1 });
+    res.status(200).json({ success: true, data: trivias });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ✅ Get Single Trivia
+exports.getTriviaById = async (req, res) => {
+  try {
+    const trivia = await Trivia.findById(req.params.id);
+    if (!trivia) {
+      return res.status(404).json({ success: false, message: "Trivia not found" });
+    }
+    res.status(200).json({ success: true, data: trivia });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ✅ Update Trivia (name or whole subCards array)
+exports.updateTrivia = async (req, res) => {
+  try {
+    const updated = await Trivia.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
+    });
+
+    if (!updated) {
+      return res.status(404).json({ success: false, message: "Trivia not found" });
+    }
+
+    res.status(200).json({ success: true, data: updated });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+// ✅ Delete Trivia
+exports.deleteTrivia = async (req, res) => {
+  try {
+    const deleted = await Trivia.findByIdAndDelete(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ success: false, message: "Trivia not found" });
+    }
+    res.status(200).json({ success: true, message: "Trivia deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+//
+// 🔹 SUBCARDS OPERATIONS
+//
+
+// ✅ Add a new subcard
+exports.addSubCard = async (req, res) => {
+  try {
+    const { id } = req.params; //means trivi id
+    const { heading, subHeading, content, image } = req.body;
+
+    const trivia = await Trivia.findById(id);
+    if (!trivia) {
+      return res.status(404).json({ success: false, message: "Trivia not found" });
+    }
+
+    trivia.subCards.push({ heading, subHeading, content, image });
+    await trivia.save();
+
+    res.status(200).json({ success: true, data: trivia });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+// ✅ Update a subcard
+exports.updateSubCard = async (req, res) => {
+  try {
+    const { id, subCardId } = req.params;
+    const { heading, subHeading, content, image } = req.body;
+
+    const trivia = await Trivia.findById(id);
+    if (!trivia) {
+      return res.status(404).json({ success: false, message: "Trivia not found" });
+    }
+
+    const subCard = trivia.subCards.id(subCardId);
+    if (!subCard) {
+      return res.status(404).json({ success: false, message: "SubCard not found" });
+    }
+
+    if (heading !== undefined) subCard.heading = heading;
+    if (subHeading !== undefined) subCard.subHeading = subHeading;
+    if (content !== undefined) subCard.content = content;
+    if (image !== undefined) subCard.image = image;
+
+    await trivia.save();
+    res.status(200).json({ success: true, data: trivia });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+// ✅ Delete a subcard
+exports.deleteSubCard = async (req, res) => {
+  try {
+    const { id, subCardId } = req.params;
+
+    const trivia = await Trivia.findById(id);
+    if (!trivia) {
+      return res.status(404).json({ success: false, message: "Trivia not found" });
+    }
+
+    if (trivia.subCards.length <= 1) {
+      return res.status(400).json({ success: false, message: "A trivia must have at least one subcard." });
+    }
+
+    // ✅ Remove subCard by ID
+    const subCard = trivia.subCards.id(subCardId);
+    if (!subCard) {
+      return res.status(404).json({ success: false, message: "SubCard not found" });
+    }
+
+    trivia.subCards.pull({ _id: subCardId }); // ✅ Works in Mongoose v7+
+    await trivia.save();
+
+    res.status(200).json({
+      success: true,
+      message: "SubCard deleted successfully",
+      data: trivia,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+

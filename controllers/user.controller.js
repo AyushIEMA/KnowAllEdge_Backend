@@ -12,6 +12,7 @@ const {
   sendServerError,
 } = require("../utils/response");
 const {constants}=require("../constant")
+const { uploadFile } = require('../utils/s3');
 
 
 
@@ -318,6 +319,96 @@ exports.updatePassword = async (req, res) => {
 };
 
 //edit profile
+exports.editProfile = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      mobileNumber,
+      gender,
+      country,
+      state,
+      city,
+      topics,
+      is_schoolStudent,
+    } = req.body;
+
+    // ✅ Find user
+    const user = await User.findById(id);
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+
+    // ✅ Update allowed fields
+    if (mobileNumber) user.mobileNumber = mobileNumber;
+    if (gender) user.gender = gender;
+    if (country) user.country = country;
+    if (state) user.state = state;
+    if (city) user.city = city;
+    if (typeof is_schoolStudent !== "undefined") user.is_schoolStudent = is_schoolStudent;
+
+    // ✅ Normalize topics
+    if (topics) {
+      let parsedTopics = topics;
+      if (typeof topics === "string") {
+        try {
+          const parsed = JSON.parse(topics);
+          parsedTopics = Array.isArray(parsed) ? parsed : [topics];
+        } catch {
+          parsedTopics = [topics];
+        }
+      }
+      user.topics = parsedTopics;
+    }
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Profile updated successfully",
+      data: user,
+    });
+  } catch (error) {
+    console.error("editProfile error:", error);
+    res.status(500).json({ success: false, message: "Server error", error: error.message });
+  }
+};
+
+//edit profile photo
+exports.updateProfilePic = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // ✅ Find user
+    const user = await User.findById(id);
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+
+    // ✅ Require file
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: "No profile picture uploaded" });
+    }
+
+    // ✅ Upload to S3
+    const imageUrl = await uploadFile(
+      req.file.buffer,
+      req.file.originalname,
+      req.file.mimetype,
+      "profilePics"
+    );
+
+    user.profilePic = imageUrl;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Profile picture updated successfully",
+      profilePic: user.profilePic,
+    });
+  } catch (error) {
+    console.error("updateProfilePic error:", error);
+    res.status(500).json({ success: false, message: "Server error", error: error.message });
+  }
+};
+
+
+
 
 //choose topics for first time (minimum 5 to choose)
 exports.setUserTopics = async (req, res) => {

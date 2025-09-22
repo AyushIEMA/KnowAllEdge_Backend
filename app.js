@@ -13,7 +13,7 @@ app.disable("x-powered-by");
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(morgan("dev"));
-
+app.use(express.json());
 //routes
 const superAdminRoutes=require('./routes/superAdmin.route')
 const userRoutes=require('./routes/user.route')

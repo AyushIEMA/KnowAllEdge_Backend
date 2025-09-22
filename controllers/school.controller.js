@@ -61,3 +61,61 @@ exports.getAllSchools = async (req, res) => {
     });
   }
 };
+
+
+
+//testing will delete it soon
+const xlsx = require("xlsx");
+
+exports.uploadSchools = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: "No file uploaded" });
+    }
+
+    // Convert buffer → workbook
+    const workbook = xlsx.read(req.file.buffer, { type: "buffer" });
+    const sheetName = workbook.SheetNames[0]; // First sheet
+    const sheetData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+    if (!sheetData.length) {
+      return res.status(400).json({ success: false, message: "Excel file is empty" });
+    }
+
+    let inserted = [];
+    let skipped = [];
+
+    for (let row of sheetData) {
+      const schoolName = row["School Name"]?.trim();
+      if (schoolName) {
+        try {
+          const newSchool = new School({
+            name: schoolName,
+            isNewAdded: false,
+          });
+          await newSchool.save();
+          inserted.push(schoolName);
+        } catch (err) {
+          // Duplicate or validation error → skip
+          skipped.push(schoolName);
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      message: "File processed successfully",
+      insertedCount: inserted.length,
+      skippedCount: skipped.length,
+      inserted,
+      skipped,
+    });
+  } catch (error) {
+    console.error("Upload Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
