@@ -3,6 +3,7 @@ const User=require('../models/user.model')
 const Topic=require('../models/topic.model')
 const News=require('../models/news.model')
 const Trivia=require('../models/trivia.model')
+const Event=require('../models/event.model')
 const {constants}=require("../constant")
 const {generateAuthToken}=require("../utils/generateAuthToken")
 const bcryptjs = require("bcryptjs");
@@ -16,7 +17,7 @@ const {
   sendError,
   sendServerError,
 } = require("../utils/response");
-
+const { eventSchema, quizSchema } =require('../vallidation/eventValidation');
 
 // ✅ Configure AWS S3
 const s3 = new AWS.S3({
@@ -297,24 +298,20 @@ exports.exportUsersToExcel = async (req, res) => {
       cell.font = { bold: true };
     });
 
-    // Make sure `exports` folder exists
-    const exportDir = path.join(__dirname, "../exports");
-    if (!fs.existsSync(exportDir)) {
-      fs.mkdirSync(exportDir);
-    }
+    // Write workbook to buffer
+    const buffer = await workbook.xlsx.writeBuffer();
 
-    // File path with timestamp
-    const filePath = path.join(exportDir, `users_${Date.now()}.xlsx`);
+    // Upload buffer to S3
+    const fileName = `users_${Date.now()}.xlsx`;
+    const publicUrl = await uploadFile(buffer, fileName, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'exports');
 
-    // Save Excel file to server
-    await workbook.xlsx.writeFile(filePath);
-
-    // Send response with file info
+    // Send response with S3 URL
     res.status(200).json({
       success: true,
       message: "Users exported successfully",
-      filePath, // Local server path
+      fileUrl: publicUrl,
     });
+
   } catch (error) {
     console.error("Error exporting users to Excel:", error);
     res.status(500).json({
@@ -627,17 +624,33 @@ exports.createTrivia = async (req, res) => {
   try {
     const { triviaName, subCards } = req.body;
 
+    let parsedSubCards = subCards;
+if (typeof subCards === 'string') {
+  parsedSubCards = JSON.parse(subCards);
+}
     if (!subCards || subCards.length === 0) {
       return res.status(400).json({
         success: false,
-        message: "At least one subcard is required."
+        message: 'At least one subcard is required.',
       });
     }
 
-    const trivia = await Trivia.create({ triviaName, subCards });
+    // req.files comes from multer
+    // assume order of files corresponds to subCards
+   if (req.files && req.files.length > 0) {
+  for (let i = 0; i < parsedSubCards.length; i++) {
+    const file = req.files[i];
+    if (file) {
+      const publicUrl = await uploadFile(file.buffer, file.originalname, file.mimetype, 'trivia');
+      parsedSubCards[i].image = publicUrl;
+    }
+  }
+}
 
-    res.status(201).json({ success: true, data: trivia });
+   const trivia = await Trivia.create({ triviaName, subCards: parsedSubCards });
+res.status(201).json({ success: true, data: trivia });
   } catch (error) {
+    console.error(error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
@@ -668,10 +681,31 @@ exports.getTriviaById = async (req, res) => {
 // ✅ Update Trivia (name or whole subCards array)
 exports.updateTrivia = async (req, res) => {
   try {
-    const updated = await Trivia.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-      runValidators: true,
-    });
+    let { subCards } = req.body;
+
+    // Parse subCards if it's a string (from form-data)
+    if (typeof subCards === 'string') {
+      subCards = JSON.parse(subCards);
+    }
+
+    // Handle uploaded images
+    // Assuming req.files is an array, order matches subCards
+    if (req.files && req.files.length > 0) {
+      for (let i = 0; i < subCards.length; i++) {
+        const file = req.files[i];
+        if (file) {
+          const publicUrl = await uploadFile(file.buffer, file.originalname, file.mimetype, 'trivia');
+          subCards[i].image = publicUrl; // replace image URL with S3 public URL
+        }
+      }
+    }
+
+    // Update Trivia
+    const updated = await Trivia.findByIdAndUpdate(
+      req.params.id,
+      { ...req.body, subCards }, // ensure subCards is replaced
+      { new: true, runValidators: true }
+    );
 
     if (!updated) {
       return res.status(404).json({ success: false, message: "Trivia not found" });
@@ -679,6 +713,7 @@ exports.updateTrivia = async (req, res) => {
 
     res.status(200).json({ success: true, data: updated });
   } catch (error) {
+    console.error(error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
@@ -703,19 +738,33 @@ exports.deleteTrivia = async (req, res) => {
 // ✅ Add a new subcard
 exports.addSubCard = async (req, res) => {
   try {
-    const { id } = req.params; //means trivi id
-    const { heading, subHeading, content, image } = req.body;
+    const { id } = req.params; // Trivia ID
+    const { heading, subHeading, content } = req.body;
 
     const trivia = await Trivia.findById(id);
     if (!trivia) {
       return res.status(404).json({ success: false, message: "Trivia not found" });
     }
 
-    trivia.subCards.push({ heading, subHeading, content, image });
+    let imageUrl = "";
+    if (req.file) {
+      // Upload single image to S3
+      imageUrl = await uploadFile(req.file.buffer, req.file.originalname, req.file.mimetype, 'trivia');
+    }
+
+    // Push new subCard
+    trivia.subCards.push({
+      heading,
+      subHeading,
+      content,
+      image: imageUrl, // S3 public URL
+    });
+
     await trivia.save();
 
     res.status(200).json({ success: true, data: trivia });
   } catch (error) {
+    console.error(error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
@@ -724,7 +773,7 @@ exports.addSubCard = async (req, res) => {
 exports.updateSubCard = async (req, res) => {
   try {
     const { id, subCardId } = req.params;
-    const { heading, subHeading, content, image } = req.body;
+    const { heading, subHeading, content } = req.body;
 
     const trivia = await Trivia.findById(id);
     if (!trivia) {
@@ -736,14 +785,22 @@ exports.updateSubCard = async (req, res) => {
       return res.status(404).json({ success: false, message: "SubCard not found" });
     }
 
+    // Update text fields if provided
     if (heading !== undefined) subCard.heading = heading;
     if (subHeading !== undefined) subCard.subHeading = subHeading;
     if (content !== undefined) subCard.content = content;
-    if (image !== undefined) subCard.image = image;
+
+    // Handle new image upload
+    if (req.file) {
+      const publicUrl = await uploadFile(req.file.buffer, req.file.originalname, req.file.mimetype, 'trivia');
+      subCard.image = publicUrl;
+    }
 
     await trivia.save();
+
     res.status(200).json({ success: true, data: trivia });
   } catch (error) {
+    console.error(error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
@@ -781,3 +838,161 @@ exports.deleteSubCard = async (req, res) => {
   }
 };
 
+//quiz and event part 
+
+// Helper: quiz status
+const getQuizStatus = (quiz) => {
+  const now = new Date();
+  if (now >= quiz.startTime && now <= quiz.endTime) return "LIVE";
+  if (now > quiz.endTime) return "PAST";
+  return "FUTURE";
+};
+
+// Add Event
+exports.addEvent = async (req, res) => {
+  try {
+    const { error } = eventSchema.validate(req.body);
+    if (error) return res.status(400).json({ error: error.details[0].message });
+
+    const event = new Event(req.body);
+    await event.save();
+    res.status(201).json({ message: "Event created", event });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Get Events
+exports.getAllEvents = async (req, res) => {
+  try {
+    const { type } = req.query;
+    const events = await Event.find();
+
+    const categorized = events.map((event) => {
+      const quizzes = event.quizzes.map((quiz) => ({
+        ...quiz.toObject(),
+        status: getQuizStatus(quiz),
+      }));
+      return { ...event.toObject(), quizzes };
+    });
+
+    const filtered =
+      type && ["LIVE", "PAST", "FUTURE"].includes(type.toUpperCase())
+        ? categorized.map((event) => ({
+            ...event,
+            quizzes: event.quizzes.filter((q) => q.status === type.toUpperCase()),
+          }))
+        : categorized;
+
+    res.json(filtered);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Update Event
+exports.updateEvent = async (req, res) => {
+  try {
+    const { error } = eventSchema.validate(req.body);
+    if (error) return res.status(400).json({ error: error.details[0].message });
+
+    const event = await Event.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!event) return res.status(404).json({ message: "Event not found" });
+    res.json({ message: "Event updated", event });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Delete Event
+exports.deleteEvent = async (req, res) => {
+  try {
+    const event = await Event.findByIdAndDelete(req.params.id);
+    if (!event) return res.status(404).json({ message: "Event not found" });
+    res.json({ message: "Event deleted" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Add Quiz
+exports.addQuizToEvent = async (req, res) => {
+  try {
+    let { quizName, onTopics, quizMaster, startTime, endTime, questionSwapTime, questions } = req.body;
+
+    // Parse JSON strings from form-data
+    if (typeof onTopics === "string") onTopics = JSON.parse(onTopics);
+    if (typeof questions === "string") questions = JSON.parse(questions);
+
+    // Validate quiz
+    const { error } = quizSchema.validate({ quizName, onTopics, quizMaster, startTime, endTime, questionSwapTime, questions });
+    if (error) return res.status(400).json({ error: error.details[0].message });
+
+    // Find event
+    const event = await Event.findById(req.params.id);
+    if (!event) return res.status(404).json({ message: "Event not found" });
+
+    // Ensure quiz times fall within event
+    if (new Date(startTime) < event.eventStartTime || new Date(endTime) > event.eventEndTime) {
+      return res.status(400).json({ message: "Quiz times must be within event start and end times" });
+    }
+
+    // Handle uploaded images
+    if (req.files && req.files.length > 0) {
+      for (let file of req.files) {
+        // Multer fieldname: images[0], images[1], etc.
+        const match = file.fieldname.match(/images\[(\d+)\]/);
+        if (match) {
+          const idx = parseInt(match[1]);
+          const imageUrl = await uploadFile(file.buffer, file.originalname, file.mimetype, 'quiz-images');
+          if (questions[idx]) questions[idx].imageUrl = imageUrl;
+        }
+      }
+    }
+
+    // Construct quiz object
+    const quiz = { quizName, onTopics, quizMaster, startTime, endTime, questionSwapTime, questions };
+
+    // Save quiz to event
+    event.quizzes.push(quiz);
+    await event.save();
+
+    res.status(201).json({ message: "Quiz added successfully", event });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+};
+// Update Quiz
+exports.updateQuiz = async (req, res) => {
+  try {
+    const { error } = quizSchema.validate(req.body);
+    if (error) return res.status(400).json({ error: error.details[0].message });
+
+    const event = await Event.findById(req.params.eventId);
+    if (!event) return res.status(404).json({ message: "Event not found" });
+
+    const quiz = event.quizzes.id(req.params.quizId);
+    if (!quiz) return res.status(404).json({ message: "Quiz not found" });
+
+    Object.assign(quiz, req.body);
+    await event.save();
+    res.json({ message: "Quiz updated", event });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Delete Quiz
+exports.deleteQuiz = async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.eventId);
+    if (!event) return res.status(404).json({ message: "Event not found" });
+
+    event.quizzes.id(req.params.quizId).remove();
+    await event.save();
+    res.json({ message: "Quiz deleted", event });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
