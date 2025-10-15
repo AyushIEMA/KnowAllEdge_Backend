@@ -36,7 +36,7 @@ const newsSchema = new mongoose.Schema(
     },
     contentFor: {
       type: String,
-      enum: ["For School", "For Others"],
+      enum: ["For School", "For Others","For Both"],
       required: true,
     },
     date: {

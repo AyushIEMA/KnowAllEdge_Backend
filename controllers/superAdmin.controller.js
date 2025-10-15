@@ -355,26 +355,51 @@ exports.deleteUserById = async (req, res) => {
 exports.addTopic = async (req, res) => {
   try {
     const { name } = req.body;
+    const file = req.file;
+
     if (!name) {
       return res.status(400).json({ success: false, message: "Topic name is required" });
     }
+
+    if (!file) {
+      return res.status(400).json({ success: false, message: "Image is required" });
+    }
+
+    const imageUrl = await uploadFile(file.buffer, file.originalname, file.mimetype, "topics");
 
     let doc = await Topic.findOne();
     if (!doc) {
       doc = await Topic.create({ topics: [] });
     }
 
-    // check duplicate (case-insensitive)
-    if (doc.topics.some(t => t.toLowerCase() === name.toLowerCase())) {
+    // check duplicate for both string and object format
+    if (
+      doc.topics.some(t => {
+        const topicName = typeof t === "string" ? t : t.name;
+        return topicName && topicName.toLowerCase() === name.toLowerCase();
+      })
+    ) {
       return res.status(400).json({ success: false, message: "Topic already exists" });
     }
 
-    doc.topics.push(name.trim());
-    doc.topics.sort((a, b) => a.localeCompare(b)); // keep alphabetically sorted
+    doc.topics.push({ name: name.trim(), image: imageUrl });
+
+    // safe sort for both old & new formats
+    doc.topics.sort((a, b) => {
+      const nameA = typeof a === "string" ? a : a.name || "";
+      const nameB = typeof b === "string" ? b : b.name || "";
+      return nameA.localeCompare(nameB);
+    });
+
     await doc.save();
 
-    res.status(201).json({ success: true, message: "Topic added successfully", topics: doc.topics });
+    res.status(201).json({
+      success: true,
+      message: "Topic added successfully",
+      topics: doc.topics,
+    });
   } catch (error) {
+    console.error(error);
     res.status(500).json({ success: false, message: "Server error", error: error.message });
   }
 };
@@ -383,13 +408,38 @@ exports.addTopic = async (req, res) => {
 exports.getAllTopics = async (req, res) => {
   try {
     let doc = await Topic.findOne();
+
+    // if no doc exists, create an empty one
     if (!doc) {
       doc = await Topic.create({ topics: [] });
     }
 
-    res.status(200).json({ success: true, topics: doc.topics });
+    // normalize old topics (handle both string and object)
+    const formattedTopics = doc.topics.map(t => {
+      if (typeof t === "string") {
+        return { name: t, image: "" }; // default empty image
+      }
+      return {
+        name: t.name || "",
+        image: t.image || "",
+      };
+    });
+
+    // sort alphabetically by name
+    formattedTopics.sort((a, b) => a.name.localeCompare(b.name));
+
+    res.status(200).json({
+      success: true,
+      count: formattedTopics.length,
+      topics: formattedTopics,
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: "Server error", error: error.message });
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
   }
 };
 
@@ -398,25 +448,58 @@ exports.updateTopic = async (req, res) => {
   try {
     const { index } = req.params; // topic index
     const { name } = req.body;
-
-    if (!name) {
-      return res.status(400).json({ success: false, message: "New topic name is required" });
-    }
+    const file = req.file; // optional new image
 
     const doc = await Topic.findOne();
     if (!doc || !doc.topics[index]) {
       return res.status(404).json({ success: false, message: "Topic not found" });
     }
 
-    doc.topics[index] = name.trim();
-    doc.topics.sort((a, b) => a.localeCompare(b));
+    // Get existing topic
+    const oldTopic = doc.topics[index];
+    let updatedTopic = {
+      name: typeof oldTopic === "string" ? oldTopic : oldTopic.name || "",
+      image: typeof oldTopic === "string" ? "" : oldTopic.image || "",
+    };
+
+    // Update name if provided
+    if (name && name.trim()) {
+      updatedTopic.name = name.trim();
+    }
+
+    // Update image if a new file is uploaded
+    if (file) {
+      const imageUrl = await uploadFile(file.buffer, file.originalname, file.mimetype, "topics");
+      updatedTopic.image = imageUrl;
+    }
+
+    // Save updated topic
+    doc.topics[index] = updatedTopic;
+
+    // Safe sort alphabetically
+    doc.topics.sort((a, b) => {
+      const nameA = typeof a === "string" ? a : a.name || "";
+      const nameB = typeof b === "string" ? b : b.name || "";
+      return nameA.localeCompare(nameB);
+    });
+
     await doc.save();
 
-    res.status(200).json({ success: true, message: "Topic updated successfully", topics: doc.topics });
+    res.status(200).json({
+      success: true,
+      message: "Topic updated successfully",
+      topics: doc.topics,
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: "Server error", error: error.message });
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
   }
 };
+
 
 //delete topic
 exports.deleteTopic = async (req, res) => {

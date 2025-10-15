@@ -47,11 +47,11 @@ router.put("/userEdit/:id", superadminChecker, updateUserById);
 router.delete("/userDelete/:id", superadminChecker, deleteUserById);
 
 // Add new topic
-router.post("/topics", addTopic);
+router.post("/topics", upload.single("image"), addTopic);
 // Get all topics
 router.get("/topics", getAllTopics);
 // Update topic
-router.put("/topics/:index", updateTopic);
+router.put("/topics/:index",upload.single("image"), updateTopic);
 // Delete topic
 router.delete("/topics/:index", deleteTopic);
 

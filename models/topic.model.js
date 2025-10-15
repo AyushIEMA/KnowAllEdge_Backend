@@ -4,8 +4,8 @@ const topicSchema = new mongoose.Schema(
   {
     topics: [
       {
-        type: String,
-        trim: true,
+        name: { type: String, trim: true, required: true },
+        image: { type: String, trim: true }, // S3 image URL
       },
     ],
   },
@@ -13,3 +13,4 @@ const topicSchema = new mongoose.Schema(
 );
 
 module.exports = mongoose.model("Topic", topicSchema);
+

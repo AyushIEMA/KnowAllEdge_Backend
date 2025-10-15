@@ -13,7 +13,8 @@ const {
 } = require("../utils/response");
 const {constants}=require("../constant")
 const { uploadFile } = require('../utils/s3');
-
+const News = require('../models/news.model');
+const Trivia = require('../models/trivia.model');
 
 
 //user signup
@@ -549,6 +550,131 @@ exports.getAllTopicsForUser = async (req, res) => {
 
     res.status(200).json({ success: true, topics: doc.topics });
   } catch (error) {
+    res.status(500).json({ success: false, message: "Server error", error: error.message });
+  }
+};
+
+
+//get the news feed 
+exports.getUserFeedCursor = async (req, res) => {
+  try {
+    const user = req.user;
+    const userTopics = user.topics || [];
+
+    const limit = parseInt(req.query.limit) || 20;
+    let cursor = req.query.cursor ? new Date(req.query.cursor) : null;
+
+    // Validate cursor
+    if (cursor && isNaN(cursor.getTime())) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid cursor value",
+      });
+    }
+
+    // News query
+    let newsQuery = {};
+    if (cursor) newsQuery.updatedAt = { $lt: cursor };
+
+    // Fetch topic-matched news first
+    const matchedNews = await News.find({ ...newsQuery, topics: { $in: userTopics } })
+      .sort({ updatedAt: -1 })
+      .limit(limit * 2)
+      .lean();
+
+    // Fetch other news if needed
+    let remaining = limit * 2 - matchedNews.length;
+    let otherNews = [];
+    if (remaining > 0) {
+      otherNews = await News.find({ ...newsQuery, topics: { $nin: userTopics } })
+        .sort({ updatedAt: -1 })
+        .limit(remaining)
+        .lean();
+    }
+
+    const allNews = [...matchedNews, ...otherNews];
+
+    // Fetch trivias (latest first)
+    const trivias = await Trivia.find()
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    // Interleave news/trivia pattern: 4,6,5 → trivia → repeat
+    const feed = [];
+    let newsIndex = 0;
+    let triviaIndex = 0;
+    const pattern = [4, 6, 5];
+    let patternIndex = 0;
+
+    while (newsIndex < allNews.length && feed.length < limit) {
+      const count = pattern[patternIndex % pattern.length];
+      const newsChunk = allNews.slice(newsIndex, newsIndex + count);
+      feed.push(...newsChunk);
+      newsIndex += count;
+
+      if (triviaIndex < trivias.length && feed.length < limit) {
+        feed.push({ type: "trivia", data: trivias[triviaIndex] });
+        triviaIndex++;
+      }
+
+      patternIndex++;
+    }
+
+    // Determine nextCursor safely
+    const lastItem = feed[feed.length - 1];
+    const nextCursor = lastItem
+      ? lastItem.updatedAt
+        ? lastItem.updatedAt.toISOString()
+        : lastItem.data?.updatedAt?.toISOString() || null
+      : null;
+
+    res.status(200).json({
+      success: true,
+      feed,
+      nextCursor,
+    });
+
+  } catch (error) {
+    console.error("Error fetching feed:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch feed",
+      error: error.message,
+    });
+  }
+};
+
+//in discover page get news by category wise
+exports.getNewsByTopic = async (req, res) => {
+  try {
+    const topicParam = req.params.topic;
+
+    if (!topicParam) {
+      return res.status(400).json({ success: false, message: "Topic parameter is required" });
+    }
+
+    // req.user is set by userChecker middleware
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    // Determine contentFor based on user's school status
+    const contentType = user.is_schoolStudent ? "For School" : "For Others";
+
+    // Find news that matches both topic and contentFor
+    const newsList = await News.find({
+      topics: { $in: [topicParam] },
+      contentFor: contentType,
+    }).sort({ date: -1 });
+
+    res.status(200).json({
+      success: true,
+      count: newsList.length,
+      news: newsList,
+    });
+  } catch (error) {
+    console.error(error);
     res.status(500).json({ success: false, message: "Server error", error: error.message });
   }
 };
