@@ -18,7 +18,7 @@ const {
   sendServerError,
 } = require("../utils/response");
 const { eventSchema, quizSchema } =require('../vallidation/eventValidation');
-
+const Score=require('../models/score.model')
 // ✅ Configure AWS S3
 const s3 = new AWS.S3({
   accessKeyId: process.env.AWS_ACCESS_KEY_ID,     // from .env
@@ -934,13 +934,21 @@ const getQuizStatus = (quiz) => {
 // Add Event
 exports.addEvent = async (req, res) => {
   try {
+    // Validate incoming data using Joi schema
     const { error } = eventSchema.validate(req.body);
-    if (error) return res.status(400).json({ error: error.details[0].message });
+    if (error)
+      return res.status(400).json({ error: error.details[0].message });
 
+    // Create a new event
     const event = new Event(req.body);
     await event.save();
-    res.status(201).json({ message: "Event created", event });
+
+    res.status(201).json({
+      message: "Event created successfully",
+      event,
+    });
   } catch (err) {
+    console.error("Error creating event:", err);
     res.status(500).json({ error: err.message });
   }
 };
@@ -973,6 +981,36 @@ exports.getAllEvents = async (req, res) => {
   }
 };
 
+//get event by ID
+exports.getEventById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Find event by ID
+    const event = await Event.findById(id);
+    if (!event) {
+      return res.status(404).json({ error: "Event not found" });
+    }
+
+    // Map quizzes with status
+    const quizzes = event.quizzes.map((quiz) => ({
+      ...quiz.toObject(),
+      status: getQuizStatus(quiz),
+    }));
+
+    // Combine data
+    const formattedEvent = {
+      ...event.toObject(),
+      quizzes,
+    };
+
+    res.json(formattedEvent);
+  } catch (err) {
+    console.error("Error fetching event by ID:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
 // Update Event
 exports.updateEvent = async (req, res) => {
   try {
@@ -1001,48 +1039,85 @@ exports.deleteEvent = async (req, res) => {
 // Add Quiz
 exports.addQuizToEvent = async (req, res) => {
   try {
-    let { quizName, onTopics, quizMaster, startTime, endTime, questionSwapTime, questions } = req.body;
+    let {
+      quizName,
+      onTopics,
+      quizMaster,
+      startTime,
+      endTime,
+      questionSwapTime,
+      questions,
+    } = req.body;
 
-    // Parse JSON strings from form-data
+    // 🧩 Handle JSON parsing (in case of multipart/form-data)
     if (typeof onTopics === "string") onTopics = JSON.parse(onTopics);
     if (typeof questions === "string") questions = JSON.parse(questions);
 
-    // Validate quiz
-    const { error } = quizSchema.validate({ quizName, onTopics, quizMaster, startTime, endTime, questionSwapTime, questions });
-    if (error) return res.status(400).json({ error: error.details[0].message });
+    // 🧩 Validate quiz data using Joi
+    const { error } = quizSchema.validate({
+      quizName,
+      onTopics,
+      quizMaster,
+      startTime,
+      endTime,
+      questionSwapTime,
+      questions,
+    });
 
-    // Find event
+    if (error)
+      return res.status(400).json({ error: error.details[0].message });
+
+    // 🔍 Find parent event by ID
     const event = await Event.findById(req.params.id);
     if (!event) return res.status(404).json({ message: "Event not found" });
 
-    // Ensure quiz times fall within event
-    if (new Date(startTime) < event.eventStartTime || new Date(endTime) > event.eventEndTime) {
-      return res.status(400).json({ message: "Quiz times must be within event start and end times" });
+    // ⏰ Ensure quiz timing falls within event duration
+    const quizStart = new Date(startTime);
+    const quizEnd = new Date(endTime);
+    if (quizStart < event.eventStartTime || quizEnd > event.eventEndTime) {
+      return res.status(400).json({
+        message: "Quiz times must be within event start and end times",
+      });
     }
 
-    // Handle uploaded images
+    // 🖼️ Handle image uploads (if images[] sent via Multer)
     if (req.files && req.files.length > 0) {
-      for (let file of req.files) {
-        // Multer fieldname: images[0], images[1], etc.
-        const match = file.fieldname.match(/images\[(\d+)\]/);
+      for (const file of req.files) {
+        const match = file.fieldname.match(/images\[(\d+)\]/); // fieldname = images[0], images[1]...
         if (match) {
-          const idx = parseInt(match[1]);
-          const imageUrl = await uploadFile(file.buffer, file.originalname, file.mimetype, 'quiz-images');
-          if (questions[idx]) questions[idx].imageUrl = imageUrl;
+          const index = parseInt(match[1]);
+          const imageUrl = await uploadFile(
+            file.buffer,
+            file.originalname,
+            file.mimetype,
+            "quiz-images"
+          );
+          if (questions[index]) questions[index].imageUrl = imageUrl;
         }
       }
     }
 
-    // Construct quiz object
-    const quiz = { quizName, onTopics, quizMaster, startTime, endTime, questionSwapTime, questions };
+    // 🧱 Construct quiz object
+    const quiz = {
+      quizName,
+      onTopics,
+      quizMaster,
+      startTime,
+      endTime,
+      questionSwapTime,
+      questions,
+    };
 
-    // Save quiz to event
+    // 💾 Save quiz inside event
     event.quizzes.push(quiz);
     await event.save();
 
-    res.status(201).json({ message: "Quiz added successfully", event });
+    res.status(201).json({
+      message: "Quiz added successfully",
+      event,
+    });
   } catch (err) {
-    console.error(err);
+    console.error("Error adding quiz:", err);
     res.status(500).json({ error: err.message });
   }
 };
@@ -1079,3 +1154,19 @@ exports.deleteQuiz = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+//get quiz result all (leaderboard)
+// ✅ Get all scores (admin)
+exports.getAllScores = async (req, res) => {
+  try {
+    const scores = await Score.find()
+      .populate("user", "name email") // ✅ match your ref
+      .populate("event", "eventName eventStartTime eventEndTime")
+      .sort({ score: -1, percentage: -1 }); // 👈 sort by score (and percentage if same score)
+
+    res.status(200).json({ total: scores.length, scores });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+

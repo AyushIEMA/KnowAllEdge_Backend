@@ -1,5 +1,12 @@
-const mongoose=require('mongoose')
+// models/Event.js
+const mongoose = require("mongoose");
 
+const questionSchema = new mongoose.Schema({
+  question: { type: String, required: true },
+  answers: { type: [String], required: true },
+  correctAnswer: { type: String, required: true },
+  imageUrl: { type: String },
+});
 
 const quizSchema = new mongoose.Schema({
   quizName: { type: String, required: true },
@@ -7,15 +14,8 @@ const quizSchema = new mongoose.Schema({
   quizMaster: { type: String, required: true },
   startTime: { type: Date, required: true },
   endTime: { type: Date, required: true },
-  questions: [
-    {
-      question: { type: String, required: true },
-      imageUrl: { type: String }, // Optional image URL
-      answers: [{ type: String, required: true }],
-      correctAnswer: { type: String, required: true },
-    },
-  ],
   questionSwapTime: { type: Number, required: true },
+  questions: [questionSchema],
 });
 
 const eventSchema = new mongoose.Schema({
@@ -25,4 +25,4 @@ const eventSchema = new mongoose.Schema({
   quizzes: [quizSchema],
 });
 
-module.exports = mongoose.model('Event', eventSchema);
+module.exports = mongoose.model("Event", eventSchema);

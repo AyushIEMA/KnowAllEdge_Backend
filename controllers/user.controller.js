@@ -15,7 +15,8 @@ const {constants}=require("../constant")
 const { uploadFile } = require('../utils/s3');
 const News = require('../models/news.model');
 const Trivia = require('../models/trivia.model');
-
+const Event=require("../models/event.model")
+const Score=require("../models/score.model")
 
 //user signup
 exports.registerUser = async (req, res) => {
@@ -676,5 +677,105 @@ exports.getNewsByTopic = async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ success: false, message: "Server error", error: error.message });
+  }
+};
+
+//play quiz
+//get quiz without answer 
+exports.getQuizForPlay = async (req, res) => {
+  try {
+    const { eventId, quizId } = req.params;
+
+    const event = await Event.findById(eventId);
+    if (!event) return res.status(404).json({ message: "Event not found" });
+
+    const quiz = event.quizzes.id(quizId);
+    if (!quiz) return res.status(404).json({ message: "Quiz not found" });
+
+    // 🧠 Remove correct answers before sending to player
+    const safeQuiz = {
+      ...quiz.toObject(),
+      questions: quiz.questions.map((q) => ({
+        _id: q._id,
+        question: q.question,
+        imageUrl: q.imageUrl,
+        answers: q.answers,
+      })),
+    };
+
+    res.json({
+      quizName: quiz.quizName,
+      onTopics: quiz.onTopics,
+      quizMaster: quiz.quizMaster,
+      questionSwapTime: quiz.questionSwapTime,
+      startTime: quiz.startTime,
+      endTime: quiz.endTime,
+      questions: safeQuiz.questions,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+//submit answer 
+exports.submitQuizAnswers = async (req, res) => {
+  try {
+    const { eventId, quizId } = req.params;
+    const { responses } = req.body; // [{ questionId, selectedAnswer }]
+
+    if (!responses || !Array.isArray(responses)) {
+      return res.status(400).json({ message: "Responses must be an array" });
+    }
+
+    const event = await Event.findById(eventId);
+    if (!event) return res.status(404).json({ message: "Event not found" });
+
+    const quiz = event.quizzes.id(quizId);
+    if (!quiz) return res.status(404).json({ message: "Quiz not found" });
+
+    // 🧮 Calculate Score
+    let score = 0;
+    quiz.questions.forEach((q) => {
+      const userAnswer = responses.find((r) => r.questionId === q._id.toString());
+      if (userAnswer && userAnswer.selectedAnswer === q.correctAnswer) {
+        score++;
+      }
+    });
+
+    const totalQuestions = quiz.questions.length;
+    const percentage = (score / totalQuestions) * 100;
+
+    // 🧾 Save to Score collection
+    const newScore = await Score.create({
+      user: req.user._id, // comes from token
+      event: eventId,
+      quizId,
+      score,
+      totalQuestions,
+      percentage,
+    });
+
+    res.status(200).json({
+      message: "Quiz submitted successfully",
+      score: newScore,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+//get score to see
+// ✅ Get user-wise scores (logged-in user)
+exports.getUserScores = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    const scores = await Score.find({ user: userId })
+      .populate("event", "eventName eventStartTime eventEndTime")
+      .sort({ playedAt: -1 });
+
+    res.status(200).json({ total: scores.length, scores });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 };

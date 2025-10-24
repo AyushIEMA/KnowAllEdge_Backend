@@ -26,11 +26,13 @@ const {
   createTrivia,
   addEvent,
   getAllEvents,
+  getEventById,
   updateEvent,
   deleteEvent,
   addQuizToEvent,
   updateQuiz,
   deleteQuiz,
+  getAllScores,
 } = require("../controllers/superAdmin.controller");
 const { superadminChecker } = require("../middlewares/authentication");
 const upload = require("../middlewares/upload");
@@ -78,6 +80,7 @@ router.delete("/trivia/:id/subcards/:subCardId", deleteSubCard);
 //event and quiz
 router.post("/event", addEvent);
 router.get("/event", getAllEvents);
+router.get("/event/:id", getEventById);
 router.put("/event/:id", updateEvent);
 router.delete("/event/:id", deleteEvent);
 
@@ -86,4 +89,7 @@ router.post("/event/:id/quiz", upload.any(), addQuizToEvent);
 router.put("/event/:eventId/quiz/:quizId", upload.any(), updateQuiz);
 router.delete("/event/:eventId/quiz/:quizId", deleteQuiz);
 
+
+//get All score of user participate in event
+router.get("/getAllUserScore", getAllScores);
 module.exports = router;
