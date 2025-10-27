@@ -47,10 +47,16 @@ exports.addSchool = async (req, res) => {
 // ✅ Controller: Get all schools alphabetically
 exports.getAllSchools = async (req, res) => {
   try {
-    const schools = await School.find().sort({ name: 1 }); // ASC order
+    const schools = await School.find().sort({ name: 1 }).lean();
+
+    const transformedSchools = schools.map((school) => ({
+      ...school,
+      name: school.name ? school.name.toUpperCase() : "",
+    }));
+
     res.json({
       success: true,
-      schools,
+      schools: transformedSchools,
     });
   } catch (error) {
     console.error(error);
