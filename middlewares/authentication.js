@@ -1,7 +1,10 @@
 const jwt = require("jsonwebtoken");
 const User = require('../models/user.model'); 
 const Superadmin=require('../models/superAdmin.model')
-
+ const {sendSuccess,
+  sendError,
+  sendServerError,
+  sendUnauthorized,}=require('../utils/response')
 
 //user checker
 module.exports.userChecker = async (req, res, next) => {
