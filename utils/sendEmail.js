@@ -18,24 +18,48 @@ exports.sendEmail = async (identifier, otpCode) => {
     });
 
     const mailOptions = {
-      from: process.env.NODEMAILER_GMAIL,
-      to: identifier,
-      subject: "IELTS : OTP for Password Reset",
-      text: `Dear User,
+  from: process.env.NODEMAILER_GMAIL,
+  to: identifier,
+  subject: "KnowAllEdge - Email Verification",
+  text: `Dear User, Thanks for registering with us.
 
-To reset your password, please use this validation OTP (valid for 3 minutes).
+Your OTP code is: ${otpCode}
 
-Your OTP is: ${otpCode}
-      
-Please keep this information confidential and do not share it with anyone. If you did not request this OTP, please ignore this email.
-      
-If you have any questions or concerns, please don't hesitate to contact us.
+Use this code to complete your verification. It will expire shortly.
 
-Thank you for using our service. 
+Thanks,
+KnowAllEdge Team`,
+  html: `
+  <div style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 40px 0;">
+    <div style="max-width: 600px; background-color: #ffffff; margin: 0 auto; border-radius: 10px; padding: 30px 25px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); text-align: center;">
       
-Best regards,
-[IELTS English Learning App]`,
-    };
+      <h2 style="color: #e60000; font-size: 22px; margin-bottom: 6px;">KnowAllEdge</h2>
+      <h4 style="color: #000000; font-size: 16px; margin-top: 0;">OTP Verification</h4>
+
+      <p style="color: #333333; font-size: 15px; margin-top: 25px; margin-bottom: 8px;">Dear User, Thanks for registering with us.</p>
+      <p style="color: #333333; font-size: 14px; margin-top: 0;">Your OTP code is:</p>
+
+      <div style="background-color: #f2f2f2; border-radius: 6px; padding: 15px 0; margin: 15px 0 20px;">
+        <span style="font-size: 28px; font-weight: bold; letter-spacing: 5px; color: #111111;">${otpCode}</span>
+      </div>
+
+      <p style="color: #555555; font-size: 13px; margin: 10px 0 25px;">
+        Use this code to complete your verification. This code will expire in <b>3 minutes</b>.
+      </p>
+
+      <p style="color: #555555; font-size: 13px; margin: 0;">
+        Thanks,<br/>
+        <strong>KnowAllEdge Team</strong>
+      </p>
+    </div>
+
+    <p style="text-align: center; color: #999999; font-size: 11px; margin-top: 20px;">
+      © ${new Date().getFullYear()} KnowAllEdge. All rights reserved.
+    </p>
+  </div>
+  `,
+};
+
 
     await transporter.sendMail(mailOptions);
     return true; // ✅ success
@@ -65,21 +89,51 @@ exports.sendForgetPasswordOTP = async (identifier, otpCode) => {
     const mailOptions = {
       from: process.env.NODEMAILER_GMAIL,
       to: identifier,
-      subject: "IELTS : OTP for Password Reset",
+      subject: "KnowAllEdge - Password Reset OTP",
       text: `Dear User,
 
-To reset your password, please use this validation OTP (valid for 3 minutes).
+We received a request to reset your password.
 
-Your OTP is: ${otpCode}
-      
-Please keep this information confidential and do not share it with anyone. If you did not request this OTP, please ignore this email.
-      
-If you have any questions or concerns, please don't hesitate to contact us.
+Your OTP code is: ${otpCode}
 
-Thank you for using our service. 
-      
-Best regards,
-[IELTS English Learning App]`,
+Use this code to reset your password. It will expire in 3 minutes.
+
+If you did not request a password reset, please ignore this email.
+
+Thanks,
+KnowAllEdge Team`,
+      html: `
+      <div style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 40px 0;">
+        <div style="max-width: 600px; background-color: #ffffff; margin: 0 auto; border-radius: 10px; padding: 30px 25px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); text-align: center;">
+          
+          <h2 style="color: #e60000; font-size: 22px; margin-bottom: 6px;">KnowAllEdge</h2>
+          <h4 style="color: #000000; font-size: 16px; margin-top: 0;">Password Reset OTP</h4>
+
+          <p style="color: #333333; font-size: 15px; margin-top: 25px; margin-bottom: 8px;">Dear User,</p>
+          <p style="color: #333333; font-size: 14px; margin-top: 0;">
+            We received a request to reset your password. Please use the OTP below to proceed:
+          </p>
+
+          <div style="background-color: #f2f2f2; border-radius: 6px; padding: 15px 0; margin: 20px 0 25px;">
+            <span style="font-size: 28px; font-weight: bold; letter-spacing: 5px; color: #111111;">${otpCode}</span>
+          </div>
+
+          <p style="color: #555555; font-size: 13px; margin: 10px 0 25px;">
+            Use this code to reset your password. It will expire in <b>3 minutes</b>.
+            <br/>If you did not request a password reset, please ignore this email.
+          </p>
+
+          <p style="color: #555555; font-size: 13px; margin: 0;">
+            Thanks,<br/>
+            <strong>KnowAllEdge Team</strong>
+          </p>
+        </div>
+
+        <p style="text-align: center; color: #999999; font-size: 11px; margin-top: 20px;">
+          © ${new Date().getFullYear()} KnowAllEdge. All rights reserved.
+        </p>
+      </div>
+      `,
     };
 
     await transporter.sendMail(mailOptions);
