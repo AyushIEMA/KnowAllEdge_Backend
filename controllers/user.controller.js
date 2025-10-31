@@ -561,6 +561,7 @@ exports.getUserFeedCursor = async (req, res) => {
   try {
     const user = req.user;
     const userTopics = user.topics || [];
+    const isSchoolStudent = user.is_schoolStudent || false;
 
     const limit = parseInt(req.query.limit) || 20;
     let cursor = req.query.cursor ? new Date(req.query.cursor) : null;
@@ -573,21 +574,37 @@ exports.getUserFeedCursor = async (req, res) => {
       });
     }
 
-    // News query
-    let newsQuery = {};
+    // Build content filter based on user type
+    const contentFilter = {
+      $or: [
+        { contentFor: "For Both" },
+        isSchoolStudent
+          ? { contentFor: "For School" }
+          : { contentFor: "Others" },
+      ],
+    };
+
+    // News query base
+    let newsQuery = { ...contentFilter };
     if (cursor) newsQuery.updatedAt = { $lt: cursor };
 
     // Fetch topic-matched news first
-    const matchedNews = await News.find({ ...newsQuery, topics: { $in: userTopics } })
+    const matchedNews = await News.find({
+      ...newsQuery,
+      topics: { $in: userTopics },
+    })
       .sort({ updatedAt: -1 })
-      .limit(limit * 2)
+      .limit(limit * 3) // fetch more for mixing
       .lean();
 
     // Fetch other news if needed
-    let remaining = limit * 2 - matchedNews.length;
+    let remaining = limit * 3 - matchedNews.length;
     let otherNews = [];
     if (remaining > 0) {
-      otherNews = await News.find({ ...newsQuery, topics: { $nin: userTopics } })
+      otherNews = await News.find({
+        ...newsQuery,
+        topics: { $nin: userTopics },
+      })
         .sort({ updatedAt: -1 })
         .limit(remaining)
         .lean();
@@ -600,25 +617,39 @@ exports.getUserFeedCursor = async (req, res) => {
       .sort({ updatedAt: -1 })
       .lean();
 
-    // Interleave news/trivia pattern: 4,6,5 → trivia → repeat
+    // Trivia appears at positions repeating every 20 items: 5, 13, 20
+    const triviaPositions = [5, 13, 20];
     const feed = [];
     let newsIndex = 0;
     let triviaIndex = 0;
-    const pattern = [4, 6, 5];
-    let patternIndex = 0;
+    let itemIndex = 1;
 
-    while (newsIndex < allNews.length && feed.length < limit) {
-      const count = pattern[patternIndex % pattern.length];
-      const newsChunk = allNews.slice(newsIndex, newsIndex + count);
-      feed.push(...newsChunk);
-      newsIndex += count;
+    // Keep looping until feed has 'limit' items or we run out of content
+    while (
+      feed.length < limit &&
+      (newsIndex < allNews.length || triviaIndex < trivias.length)
+    ) {
+      const positionInBlock = ((itemIndex - 1) % 20) + 1; // cycles 1–20 repeatedly
 
-      if (triviaIndex < trivias.length && feed.length < limit) {
-        feed.push({ type: "trivia", data: trivias[triviaIndex] });
-        triviaIndex++;
+      if (triviaPositions.includes(positionInBlock)) {
+        // Insert trivia if available
+        if (triviaIndex < trivias.length) {
+          feed.push({ type: "trivia", data: trivias[triviaIndex] });
+          triviaIndex++;
+        } else if (newsIndex < allNews.length) {
+          // fallback to news if trivia runs out
+          feed.push(allNews[newsIndex]);
+          newsIndex++;
+        }
+      } else {
+        // Insert news
+        if (newsIndex < allNews.length) {
+          feed.push(allNews[newsIndex]);
+          newsIndex++;
+        }
       }
 
-      patternIndex++;
+      itemIndex++;
     }
 
     // Determine nextCursor safely
@@ -634,7 +665,6 @@ exports.getUserFeedCursor = async (req, res) => {
       feed,
       nextCursor,
     });
-
   } catch (error) {
     console.error("Error fetching feed:", error);
     res.status(500).json({
@@ -644,6 +674,7 @@ exports.getUserFeedCursor = async (req, res) => {
     });
   }
 };
+
 
 //in discover page get news by category wise
 exports.getNewsByTopic = async (req, res) => {
