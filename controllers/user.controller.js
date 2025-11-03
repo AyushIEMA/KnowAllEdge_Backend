@@ -41,8 +41,10 @@ exports.registerUser = async (req, res) => {
     let isSchoolStudent = false; // default false
 
     // ✅ Case: User selected "Others" & provided a new school
-    if (schoolName && schoolName === "Others" && newSchoolName) {
-      let school = await School.findOne({ name: newSchoolName.trim() });
+    if (schoolName && schoolName.trim().toLowerCase() === "others" && newSchoolName) {
+      let school = await School.findOne({
+        name: { $regex: `^${newSchoolName.trim()}$`, $options: "i" }, // case-insensitive match
+      });
 
       if (!school) {
         // ✅ Create a new school with isNewAdded = true
@@ -57,8 +59,10 @@ exports.registerUser = async (req, res) => {
       isSchoolStudent = true;
     }
     // ✅ Case: User selected an existing school
-    else if (schoolName && schoolName !== "Others") {
-      const school = await School.findOne({ name: schoolName.trim() });
+    else if (schoolName && schoolName.trim().toLowerCase() !== "others") {
+      const school = await School.findOne({
+        name: { $regex: `^${schoolName.trim()}$`, $options: "i" }, // case-insensitive match
+      });
 
       if (!school) {
         return res.status(400).json({
@@ -119,6 +123,7 @@ exports.registerUser = async (req, res) => {
     });
   }
 };
+
 
 
 //user signin
