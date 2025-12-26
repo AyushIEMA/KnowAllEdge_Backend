@@ -934,19 +934,35 @@ const getQuizStatus = (quiz) => {
 // Add Event
 exports.addEvent = async (req, res) => {
   try {
-    // Validate incoming data using Joi schema
+    // Joi validation
     const { error } = eventSchema.validate(req.body);
     if (error)
       return res.status(400).json({ error: error.details[0].message });
 
-    // Create a new event
-    const event = new Event(req.body);
+    const { eventStartTime, eventEndTime } = req.body;
+
+    const now = new Date();
+    const start = new Date(eventStartTime);
+    const end = new Date(eventEndTime);
+
+    // 🕒 Event lifecycle
+    let status = "future";
+    if (now >= start && now <= end) status = "live";
+    if (now > end) status = "past";
+
+    // Create event with status
+    const event = new Event({
+      ...req.body,
+      status
+    });
+
     await event.save();
 
     res.status(201).json({
       message: "Event created successfully",
-      event,
+      event
     });
+
   } catch (err) {
     console.error("Error creating event:", err);
     res.status(500).json({ error: err.message });

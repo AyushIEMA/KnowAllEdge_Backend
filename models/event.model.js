@@ -31,6 +31,14 @@ const eventSchema = new mongoose.Schema({
   eventName: { type: String, required: true },
   eventStartTime: { type: Date, required: true },
   eventEndTime: { type: Date, required: true },
+
+  // 🆕 Event lifecycle (DO NOT remove anything else)
+  status: {
+    type: String,
+    enum: ["future", "live", "past"],
+    default: "future"
+  },
+
   quizzes: [quizSchema],
 });
 
