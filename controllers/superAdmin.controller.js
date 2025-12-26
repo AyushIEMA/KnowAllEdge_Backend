@@ -1046,58 +1046,54 @@ exports.addQuizToEvent = async (req, res) => {
       startTime,
       endTime,
       questionSwapTime,
-      questions,
+      questions
     } = req.body;
 
-    // 🧩 Handle JSON parsing (in case of multipart/form-data)
+    // JSON parse for form-data
     if (typeof onTopics === "string") onTopics = JSON.parse(onTopics);
     if (typeof questions === "string") questions = JSON.parse(questions);
 
-    // 🧩 Validate quiz data using Joi
-    const { error } = quizSchema.validate({
-      quizName,
-      onTopics,
-      quizMaster,
-      startTime,
-      endTime,
-      questionSwapTime,
-      questions,
-    });
+    // Validate
+    if (!quizName || !startTime || !endTime) {
+      return res.status(400).json({ message: "Missing fields" });
+    }
 
-    if (error)
-      return res.status(400).json({ error: error.details[0].message });
-
-    // 🔍 Find parent event by ID
+    // Find event
     const event = await Event.findById(req.params.id);
     if (!event) return res.status(404).json({ message: "Event not found" });
 
-    // ⏰ Ensure quiz timing falls within event duration
     const quizStart = new Date(startTime);
     const quizEnd = new Date(endTime);
+
     if (quizStart < event.eventStartTime || quizEnd > event.eventEndTime) {
       return res.status(400).json({
-        message: "Quiz times must be within event start and end times",
+        message: "Quiz time must be within event duration"
       });
     }
 
-    // 🖼️ Handle image uploads (if images[] sent via Multer)
-    if (req.files && req.files.length > 0) {
+    // 🖼️ Attach images to questions
+    if (req.files?.length > 0) {
       for (const file of req.files) {
-        const match = file.fieldname.match(/images\[(\d+)\]/); // fieldname = images[0], images[1]...
+        const match = file.fieldname.match(/images\[(\d+)\]/);
         if (match) {
           const index = parseInt(match[1]);
-          const imageUrl = await uploadFile(
+          const url = await uploadFile(
             file.buffer,
             file.originalname,
             file.mimetype,
             "quiz-images"
           );
-          if (questions[index]) questions[index].imageUrl = imageUrl;
+          if (questions[index]) questions[index].imageUrl = url;
         }
       }
     }
 
-    // 🧱 Construct quiz object
+    // 🕒 Status logic
+    const now = new Date();
+    let status = "future";
+    if (now >= quizStart && now <= quizEnd) status = "live";
+    if (now > quizEnd) status = "past";
+
     const quiz = {
       quizName,
       onTopics,
@@ -1106,18 +1102,19 @@ exports.addQuizToEvent = async (req, res) => {
       endTime,
       questionSwapTime,
       questions,
+      status
     };
 
-    // 💾 Save quiz inside event
     event.quizzes.push(quiz);
     await event.save();
 
     res.status(201).json({
       message: "Quiz added successfully",
-      event,
+      quiz
     });
+
   } catch (err) {
-    console.error("Error adding quiz:", err);
+    console.error(err);
     res.status(500).json({ error: err.message });
   }
 };

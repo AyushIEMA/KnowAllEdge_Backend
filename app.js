@@ -5,7 +5,7 @@ const cors = require("cors");
 const helmet = require("helmet");
 const app = express();
 require('dotenv').config()
-
+require("./cron/quizStatusCron");
 //middlewares
 app.use(cors());
 app.use(helmet());

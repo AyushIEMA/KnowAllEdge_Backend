@@ -728,16 +728,23 @@ exports.getQuizForPlay = async (req, res) => {
     const quiz = event.quizzes.id(quizId);
     if (!quiz) return res.status(404).json({ message: "Quiz not found" });
 
-    // 🧠 Remove correct answers before sending to player
-    const safeQuiz = {
-      ...quiz.toObject(),
-      questions: quiz.questions.map((q) => ({
-        _id: q._id,
-        question: q.question,
-        imageUrl: q.imageUrl,
-        answers: q.answers,
-      })),
-    };
+    // ⛔ Block if not live
+    if (quiz.status !== "live") {
+      return res.status(403).json({
+        status: quiz.status,
+        message:
+          quiz.status === "future"
+            ? "Quiz has not started yet"
+            : "Quiz has already ended"
+      });
+    }
+
+    const safeQuestions = quiz.questions.map(q => ({
+      _id: q._id,
+      question: q.question,
+      imageUrl: q.imageUrl,
+      answers: q.answers
+    }));
 
     res.json({
       quizName: quiz.quizName,
@@ -746,8 +753,10 @@ exports.getQuizForPlay = async (req, res) => {
       questionSwapTime: quiz.questionSwapTime,
       startTime: quiz.startTime,
       endTime: quiz.endTime,
-      questions: safeQuiz.questions,
+      status: quiz.status,
+      questions: safeQuestions
     });
+
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
