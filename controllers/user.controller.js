@@ -728,17 +728,29 @@ exports.getQuizForPlay = async (req, res) => {
     const quiz = event.quizzes.id(quizId);
     if (!quiz) return res.status(404).json({ message: "Quiz not found" });
 
-    // ⛔ Block if not live
-    if (quiz.status !== "live") {
+    // ⛔ Block only FUTURE
+    if (quiz.status === "future") {
       return res.status(403).json({
         status: quiz.status,
-        message:
-          quiz.status === "future"
-            ? "Quiz has not started yet"
-            : "Quiz has already ended"
+        message: "Quiz has not started yet"
       });
     }
 
+    const now = new Date();
+    const quizStart = new Date(quiz.startTime);
+
+    const elapsedSeconds = Math.floor((now - quizStart) / 1000);
+    const swapTime = quiz.questionSwapTime; // seconds
+
+    let currentQuestionIndex = Math.floor(elapsedSeconds / swapTime);
+
+    // Do not overflow
+    if (currentQuestionIndex < 0) currentQuestionIndex = 0;
+    if (currentQuestionIndex >= quiz.questions.length) {
+      currentQuestionIndex = quiz.questions.length - 1;
+    }
+
+    // Remove correct answers
     const safeQuestions = quiz.questions.map(q => ({
       _id: q._id,
       question: q.question,
@@ -750,10 +762,12 @@ exports.getQuizForPlay = async (req, res) => {
       quizName: quiz.quizName,
       onTopics: quiz.onTopics,
       quizMaster: quiz.quizMaster,
-      questionSwapTime: quiz.questionSwapTime,
       startTime: quiz.startTime,
       endTime: quiz.endTime,
+      questionSwapTime: quiz.questionSwapTime,
       status: quiz.status,
+
+      currentQuestionIndex, // 🔥 THIS IS MAGIC
       questions: safeQuestions
     });
 
@@ -761,6 +775,7 @@ exports.getQuizForPlay = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
 
 //submit answer 
 exports.submitQuizAnswers = async (req, res) => {
