@@ -1157,12 +1157,30 @@ exports.updateQuiz = async (req, res) => {
 // Delete Quiz
 exports.deleteQuiz = async (req, res) => {
   try {
-    const event = await Event.findById(req.params.eventId);
-    if (!event) return res.status(404).json({ message: "Event not found" });
+    const { eventId, quizId } = req.params;
 
-    event.quizzes.id(req.params.quizId).remove();
+    const event = await Event.findById(eventId);
+    if (!event) {
+      return res.status(404).json({ message: "Event not found" });
+    }
+
+    // Check quiz exists
+    const quiz = event.quizzes.id(quizId);
+    if (!quiz) {
+      return res.status(404).json({ message: "Quiz not found" });
+    }
+
+    // ✅ Proper way to delete subdocument in Mongoose v7
+    event.quizzes.pull({ _id: quizId });
+
     await event.save();
-    res.json({ message: "Quiz deleted", event });
+
+    res.json({
+      success: true,
+      message: "Quiz deleted successfully",
+      remainingQuizzes: event.quizzes
+    });
+
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

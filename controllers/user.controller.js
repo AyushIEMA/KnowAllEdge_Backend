@@ -728,7 +728,7 @@ exports.getQuizForPlay = async (req, res) => {
     const quiz = event.quizzes.id(quizId);
     if (!quiz) return res.status(404).json({ message: "Quiz not found" });
 
-    // ⛔ Block only FUTURE
+    // ⛔ Future quizzes blocked
     if (quiz.status === "future") {
       return res.status(403).json({
         status: quiz.status,
@@ -736,21 +736,35 @@ exports.getQuizForPlay = async (req, res) => {
       });
     }
 
+    // 🔥 If quiz is LIVE → block re-play
+    if (quiz.status === "live") {
+      const alreadyPlayed = await Score.findOne({
+        user: req.user._id,
+        event: eventId,
+        quizId,
+        isPlayed: true
+      });
+
+      if (alreadyPlayed) {
+        return res.status(403).json({
+          message: "You have already played this quiz",
+          score: alreadyPlayed
+        });
+      }
+    }
+
+    // 🕒 Time logic
     const now = new Date();
     const quizStart = new Date(quiz.startTime);
 
     const elapsedSeconds = Math.floor((now - quizStart) / 1000);
-    const swapTime = quiz.questionSwapTime; // seconds
+    const swapTime = quiz.questionSwapTime;
 
     let currentQuestionIndex = Math.floor(elapsedSeconds / swapTime);
-
-    // Do not overflow
     if (currentQuestionIndex < 0) currentQuestionIndex = 0;
-    if (currentQuestionIndex >= quiz.questions.length) {
+    if (currentQuestionIndex >= quiz.questions.length)
       currentQuestionIndex = quiz.questions.length - 1;
-    }
 
-    // Remove correct answers
     const safeQuestions = quiz.questions.map(q => ({
       _id: q._id,
       question: q.question,
@@ -766,8 +780,7 @@ exports.getQuizForPlay = async (req, res) => {
       endTime: quiz.endTime,
       questionSwapTime: quiz.questionSwapTime,
       status: quiz.status,
-
-      currentQuestionIndex, // 🔥 THIS IS MAGIC
+      currentQuestionIndex,
       questions: safeQuestions
     });
 
@@ -777,11 +790,12 @@ exports.getQuizForPlay = async (req, res) => {
 };
 
 
+
 //submit answer 
 exports.submitQuizAnswers = async (req, res) => {
   try {
     const { eventId, quizId } = req.params;
-    const { responses } = req.body; // [{ questionId, selectedAnswer }]
+    const { responses } = req.body;
 
     if (!responses || !Array.isArray(responses)) {
       return res.status(400).json({ message: "Responses must be an array" });
@@ -793,10 +807,26 @@ exports.submitQuizAnswers = async (req, res) => {
     const quiz = event.quizzes.id(quizId);
     if (!quiz) return res.status(404).json({ message: "Quiz not found" });
 
-    // 🧮 Calculate Score
+    // ⛔ Prevent re-submit while LIVE
+    if (quiz.status === "live") {
+      const alreadyPlayed = await Score.findOne({
+        user: req.user._id,
+        event: eventId,
+        quizId,
+        isPlayed: true
+      });
+
+      if (alreadyPlayed) {
+        return res.status(403).json({
+          message: "You have already played this quiz"
+        });
+      }
+    }
+
+    // 🧮 Calculate score
     let score = 0;
-    quiz.questions.forEach((q) => {
-      const userAnswer = responses.find((r) => r.questionId === q._id.toString());
+    quiz.questions.forEach(q => {
+      const userAnswer = responses.find(r => r.questionId === q._id.toString());
       if (userAnswer && userAnswer.selectedAnswer === q.correctAnswer) {
         score++;
       }
@@ -805,24 +835,27 @@ exports.submitQuizAnswers = async (req, res) => {
     const totalQuestions = quiz.questions.length;
     const percentage = (score / totalQuestions) * 100;
 
-    // 🧾 Save to Score collection
+    // 🧾 Save
     const newScore = await Score.create({
-      user: req.user._id, // comes from token
+      user: req.user._id,
       event: eventId,
       quizId,
       score,
       totalQuestions,
       percentage,
+      isPlayed: true
     });
 
-    res.status(200).json({
+    res.json({
       message: "Quiz submitted successfully",
-      score: newScore,
+      score: newScore
     });
+
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
+
 
 //get score to see
 // ✅ Get user-wise scores (logged-in user)
