@@ -32,7 +32,7 @@ const {
   addQuizToEvent,
   updateQuiz,
   deleteQuiz,
-  getAllScores,
+  getAllScores,exportQuizScoresToExcel,
 } = require("../controllers/superAdmin.controller");
 const { superadminChecker } = require("../middlewares/authentication");
 const upload = require("../middlewares/upload");
@@ -92,4 +92,6 @@ router.delete("/event/:eventId/quiz/:quizId", deleteQuiz);
 
 //get All score of user participate in event
 router.get("/getAllUserScore", getAllScores);
+//get quiz result export sheet
+router.get("/events/:eventId/quiz/:quizId/export",exportQuizScoresToExcel)
 module.exports = router;

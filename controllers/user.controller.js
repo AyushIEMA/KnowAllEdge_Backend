@@ -823,19 +823,34 @@ exports.submitQuizAnswers = async (req, res) => {
       }
     }
 
-    // 🧮 Calculate score
+    // 🧮 Calculate score + build review
     let score = 0;
+    const review = [];
+
     quiz.questions.forEach(q => {
-      const userAnswer = responses.find(r => r.questionId === q._id.toString());
-      if (userAnswer && userAnswer.selectedAnswer === q.correctAnswer) {
-        score++;
-      }
+      const userAnswerObj = responses.find(
+        r => r.questionId === q._id.toString()
+      );
+
+      const userAnswer = userAnswerObj?.selectedAnswer || null;
+      const correctAnswer = q.correctAnswer;
+
+      const isCorrect = userAnswer === correctAnswer;
+      if (isCorrect) score++;
+
+      review.push({
+        questionId: q._id,
+        question: q.question,
+        userAnswer,
+        correctAnswer,
+        isCorrect
+      });
     });
 
     const totalQuestions = quiz.questions.length;
     const percentage = (score / totalQuestions) * 100;
 
-    // 🧾 Save
+    // 🧾 Save score
     const newScore = await Score.create({
       user: req.user._id,
       event: eventId,
@@ -846,15 +861,22 @@ exports.submitQuizAnswers = async (req, res) => {
       isPlayed: true
     });
 
+    // 🎯 Send result with wrong answers
     res.json({
       message: "Quiz submitted successfully",
-      score: newScore
+      score: {
+        obtained: score,
+        total: totalQuestions,
+        percentage
+      },
+      resultBreakdown: review
     });
 
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
+
 
 
 //get score to see

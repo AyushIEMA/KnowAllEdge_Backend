@@ -1201,3 +1201,90 @@ exports.getAllScores = async (req, res) => {
   }
 };
 
+//quiz result export list just pass eventid and quizid in params
+exports.exportQuizScoresToExcel = async (req, res) => {
+  try {
+    const { eventId, quizId } = req.params;
+
+    // 1️⃣ Get Event + Quiz name
+    const event = await Event.findById(eventId);
+    if (!event) return res.status(404).json({ message: "Event not found" });
+
+    const quiz = event.quizzes.id(quizId);
+    if (!quiz) return res.status(404).json({ message: "Quiz not found" });
+
+    const eventName = event.eventName;
+    const quizName = quiz.quizName;
+
+    // 2️⃣ Fetch scores
+    const scores = await Score.find({ event: eventId, quizId })
+      .populate("user", "name email mobileNumber")
+      .lean();
+
+    if (!scores.length) {
+      return res.status(404).json({ message: "No scores found" });
+    }
+
+    // 3️⃣ Create Excel
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Quiz Results");
+
+    worksheet.columns = [
+      { header: "User Name", key: "name", width: 25 },
+      { header: "Email", key: "email", width: 30 },
+      { header: "Mobile", key: "mobile", width: 18 },
+      { header: "Event Name", key: "eventName", width: 30 },
+      { header: "Quiz Name", key: "quizName", width: 30 },
+      { header: "Score", key: "score", width: 10 },
+      { header: "Total Questions", key: "total", width: 15 },
+      { header: "Percentage", key: "percentage", width: 15 },
+      { header: "Played At", key: "playedAt", width: 25 },
+    ];
+
+    // 4️⃣ Add rows
+    scores.forEach(s => {
+      worksheet.addRow({
+        name: s.user?.name || "N/A",
+        email: s.user?.email || "",
+        mobile: s.user?.mobileNumber || "",
+        eventName,
+        quizName,
+        score: s.score,
+        total: s.totalQuestions,
+        percentage: `${s.percentage}%`,
+        playedAt: new Date(s.playedAt).toLocaleString()
+      });
+    });
+
+    // Bold headers
+    worksheet.getRow(1).eachCell(cell => {
+      cell.font = { bold: true };
+    });
+
+    // 5️⃣ Convert to buffer
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    // 6️⃣ Upload to S3
+    const fileName = `${eventName}_${quizName}_Results_${Date.now()}.xlsx`.replace(/[^a-zA-Z0-9]/g, "_");
+
+    const publicUrl = await uploadFile(
+      buffer,
+      fileName,
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "quiz-exports"
+    );
+
+    // 7️⃣ Response
+    res.json({
+      success: true,
+      message: "Quiz results exported successfully",
+      eventName,
+      quizName,
+      fileUrl: publicUrl
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+};
