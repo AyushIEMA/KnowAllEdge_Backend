@@ -21,7 +21,7 @@ router.get('/feed', userChecker,getUserFeedCursor);
 //in discover page news filtered topic wise
 router.get("/topic/:topic", userChecker,getNewsByTopic);
 //get quiz questions without answer 
-router.get('/events/:eventId/quizzes/:quizId/play',getQuizForPlay)
+router.get('/events/:eventId/quizzes/:quizId/play',userChecker,getQuizForPlay)
 //anser quiz question
 router.post("/events/:eventId/quizzes/:quizId/submit",userChecker,submitQuizAnswers)
 router.get("/topic/:topic", userChecker,getNewsByTopic);
